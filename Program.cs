@@ -9,6 +9,8 @@ using Microsoft.CognitiveServices.Speech;
 using Microsoft.CognitiveServices.Speech.Audio;
 using System.Linq;
 using Microsoft.Extensions.Configuration;
+using System.Text;
+using System.Dynamic;
 
 namespace mspeech
 {
@@ -38,9 +40,13 @@ namespace mspeech
     }
     class MicrosoftSpeechRecognizer
     {
-        public MicrosoftSpeechRecognizer()
+        dynamic parameters;
+
+        public MicrosoftSpeechRecognizer(ExpandoObject d)
         {
+           
             m_tonegen = new ToneGenerator(660);
+            parameters = d;
         }
 
         public List<string> RecognizeSpeech(string input = "microphone")
@@ -57,7 +63,7 @@ namespace mspeech
             var audioStream = AudioInputStream.CreatePushStream(AudioStreamFormat.GetWaveFormatPCM((uint)sampleRate, 16, 1));
             var audioConfig = AudioConfig.FromStreamInput(audioStream);
 
-            var speechConfig = SpeechConfig.FromSubscription(key, region);
+            var speechConfig = SpeechConfig.FromSubscription(parameters.Key, parameters.Region);
             speechConfig.SpeechRecognitionLanguage = languageCode;
             //speechConfig.SetProperty(PropertyId.SpeechServiceConnection_ProxyHostName, "localhost");
             //speechConfig.SetProperty(PropertyId.SpeechServiceConnection_ProxyPort, "8888");
@@ -161,7 +167,8 @@ namespace mspeech
 
                 wavein.WaveFormat = new WaveFormat(sampleRate, 16, 1);
                 wavein.NumberOfBuffers = 20;
-                waveFile = new WaveFileWriter(@"C:\Temp\Test0001.wav", wavein.WaveFormat);
+                string path = $"{parameters.OutputFilePath}SR-{parameters.StartTime}.{parameters.SoundFileExt}";
+                waveFile = new WaveFileWriter(path, wavein.WaveFormat);
                 wavein.StartRecording();
 
                 Console.WriteLine("Listening... (press ENTER to exit) {0}", DateTime.Now.Subtract(DateTime.Today).TotalMilliseconds);
@@ -174,13 +181,20 @@ namespace mspeech
 
         private readonly int sampleRate = 16000;
         private readonly string languageCode = "en-US";
-        private static readonly string key = Environment.GetEnvironmentVariable("SpeechRecognizerKey");
-        private static readonly string region = "uksouth";
         private ToneGenerator m_tonegen;
     }
 
     class Program
     {
+        private static string key;
+        private static string region;
+        private static string outputFilePath;
+
+        private const string soundFileExt = "wav";
+        private const string textFileExt = "txt";
+
+        private static long startTime = DateTime.Now.Ticks;
+
         static void Main(string[] args)
         {
             if (args.Length > 1)
@@ -190,13 +204,28 @@ namespace mspeech
             }
 
             var configBuilder = new ConfigurationBuilder()
-               .SetBasePath(Directory.GetCurrentDirectory())
-               .AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
-               .AddJsonFile("settings.json", optional: true, reloadOnChange: true)
-               .AddEnvironmentVariables();
+              .SetBasePath(Directory.GetCurrentDirectory())
+              .AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
+              .AddJsonFile("settings.json", optional: true, reloadOnChange: true)
+              .AddEnvironmentVariables();
 
-            MicrosoftSpeechRecognizer recognizer = new MicrosoftSpeechRecognizer();
-            recognizer.RecognizeSpeech(args.Length == 1 ? args[0] : "microphone");
+            IConfiguration configuration = configBuilder.Build();
+            key = configuration["SpeechRecognizerKey"];
+            region = configuration["SpeechRecognizerRegion"];
+            outputFilePath = configuration["OutputFilePath"];
+
+
+            dynamic d = new ExpandoObject();
+            d.Key = key;
+            d.Region = region;
+            d.OutputFilePath = outputFilePath;
+            d.StartTime = startTime;
+            d.SoundFileExt = soundFileExt;
+
+            MicrosoftSpeechRecognizer recognizer = new MicrosoftSpeechRecognizer(d);
+            var results = recognizer.RecognizeSpeech(args.Length == 1 ? args[0] : "microphone");
+            string path = $"{outputFilePath}SR-{startTime}.{textFileExt}";
+            File.WriteAllLines(path, results, Encoding.UTF8);
         }
     }
 }
